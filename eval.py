@@ -7,6 +7,8 @@ import numpy as np
 import cv2
 import torch.nn as nn
 from torchvision import transforms
+from train import SwinPETModel, MSESSIMLoss
+from tqdm import tqdm
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="training codes")
@@ -23,34 +25,12 @@ def init_status(args):
     os.makedirs(os.path.join(args.output, "target"), exist_ok=True)
     os.makedirs(os.path.join(args.output, "origin"), exist_ok=True)
 
-# 🔍 1. 加载训练好的模型
-class SwinPETModel(nn.Module):
-    def __init__(self):
-        super(SwinPETModel, self).__init__()
-        self.model = timm.create_model('swin_base_patch4_window7_224', pretrained=False, patch_size=1)
-        
-        # Swin Transformer 的 head 修改为像素级输出
-        self.model.head = nn.Identity()
-        
-        # 新的卷积 head，恢复特征图为 224x224 的像素级输出
-        self.upsample_conv = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(512, 1, kernel_size=1),
-            nn.ConvTranspose2d(1, 1, kernel_size=8, stride=8)  # 将 7x7 放大到 224x224
-        )
-
-    def forward(self, x):
-        x = self.model.forward_features(x)
-        x = x.permute(0, 3, 1, 2) 
-        x = self.upsample_conv(x)
-        return x
-
 def eval(args):
     # 🧠 2. 加载训练好的模型权重
     model = SwinPETModel()
     # 加载模型权重字典
     checkpoint = torch.load(args.model, map_location='cpu')
+    criterion = MSESSIMLoss()
 
     # 处理 state_dict，移除 'module.' 前缀
     new_state_dict = {}
@@ -73,8 +53,11 @@ def eval(args):
     target_folder = args.target  # 期望输出图片
     output_folder = args.output  # 预测输出图片的保存文件夹
     
-    for file_name in os.listdir(input_folder):
+    loss_total = 0
+    
+    for file_name in tqdm(os.listdir(input_folder)):
         input_path = os.path.join(input_folder, file_name)
+        target_path = os.path.join(target_folder, file_name)
         
         # 读取 .mat 文件中的图像数据 (假设 img 字段包含 256x256 的灰度图，范围为 0-1)
         input_img = io.loadmat(input_path)['img'].astype('float32')
@@ -82,9 +65,16 @@ def eval(args):
         input_img = torch.from_numpy(input_img).permute(2, 0, 1).float()
         input_img = transform(input_img).unsqueeze(0)
         
+        target_img = io.loadmat(target_path)['img'].astype('float32')
+        target_img = torch.from_numpy(target_img).unsqueeze(0).float()
+        target_img = transform(target_img.repeat(3, 1, 1))[0:1, :, :].unsqueeze(0)
+        
         # 进行推理
         with torch.no_grad():
             output = model(input_img)
+        
+        loss = criterion(output, target_img)
+        loss_total += loss
         
         # 处理输出 (转换为图像)
         output = output.squeeze(0).squeeze(0).numpy()  # 形状 (224, 224)
@@ -95,7 +85,7 @@ def eval(args):
         output_path = os.path.join(output_folder, "predict", f"{os.path.splitext(file_name)[0]}.png")
         cv2.imwrite(output_path, output)
         
-        print(f"处理完成: {file_name} -> {output_path}")
+    print(f"All precessed loss: {loss_total / len(os.listdir(input_folder))}")
 
 if __name__ == "__main__":
     args = parse_arguments()
