@@ -1,3 +1,3 @@
-python3 eval.py --output="../results/model_default" --model="../models/model_default/checkpoint/latest.pth"
+python3 eval.py --output="../results/model_default" --model="../models/model_default/checkpoint/results.pth"
 
 CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 train.py --output "../models/model_default"

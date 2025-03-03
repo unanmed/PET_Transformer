@@ -8,17 +8,11 @@ import cv2
 import torch.nn as nn
 from torchvision import transforms
 
-def generate_mask(img_height, img_width, radius, center_x, center_y):
-    y, x = np.ogrid[0:img_height, 0:img_width]
-    # circle mask
-    mask = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius ** 2
-    return mask
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description="training codes")
     parser.add_argument("--output", type=str, default="../results/model_default", help="Path to save checkpoint.")
-    parser.add_argument("--input", type=str, default="../mat/NAC_train", help="Input images.")
-    parser.add_argument("--target", type=str, default="../mat/CT_train", help="Target images.")
+    parser.add_argument("--input", type=str, default="../mat/NAC_test", help="Input images.")
+    parser.add_argument("--target", type=str, default="../mat/CT_test", help="Target images.")
     parser.add_argument("--model", type=str, default="../models/model_default/checkpoint/latest.pth")
     args = parser.parse_args()
     return args
@@ -78,14 +72,12 @@ def eval(args):
     input_folder = args.input  # 存放 .mat 文件的文件夹
     target_folder = args.target  # 期望输出图片
     output_folder = args.output  # 预测输出图片的保存文件夹
-    mask = generate_mask(256, 256, 128, 128, 128)
     
     for file_name in os.listdir(input_folder):
         input_path = os.path.join(input_folder, file_name)
         
         # 读取 .mat 文件中的图像数据 (假设 img 字段包含 256x256 的灰度图，范围为 0-1)
         input_img = io.loadmat(input_path)['img'].astype('float32')
-        input_img = input_img * mask
         input_img = np.repeat(input_img[:,:,np.newaxis], 3, axis=2)
         input_img = torch.from_numpy(input_img).permute(2, 0, 1).float()
         input_img = transform(input_img).unsqueeze(0)
